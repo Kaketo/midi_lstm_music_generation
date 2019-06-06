@@ -59,24 +59,6 @@ class NetworkAPI():
         self.criterion = nn.NLLLoss()
         self.optimizer = optimizer
 
-    def train(self, iterations):
-        """
-        Wersja backupowa - do not use
-        """
-        for iteration in tqdm(range(iterations)):
-            features, targets = self.DataAPI.get_batch()
-            features, targets = torch.tensor(data=features, dtype=torch.long).to(self.device), torch.tensor(data=targets, dtype=torch.long).to(self.device)
-            self.model.zero_grad()
-            
-            target_preds = F.log_softmax(self.model(features), dim=1) # dim=1 is row
-            loss = self.criterion(target_preds, targets)
-            loss.backward()
-            self.optimizer.step()
-            self.losses.append(loss.cpu().item())
-        
-        return self.losses
-
-
     def train_loop(self, iterations, verbose_every_iteration = 10000):
         print("====== HYPERPARAMETERS ======")
         print("starting epoch=", self.iterations)
@@ -103,23 +85,25 @@ class NetworkAPI():
 
             if iteration % verbose_every_iteration == 0:
                 print('| Iteration: {:3d} | Time: {:6.2f}s | Loss: {:5.2f} |'
-                  .format(iteration+1, (time.time() - train_start_time), loss.cpu().item()))
+                  .format(self.iterations+1, (time.time() - train_start_time), loss.cpu().item()))
                 train_start_time = time.time()
 
             if loss < best_loss:
                 state = {
                             'net': self.model.state_dict(),
-                            'iteration': iteration,
+                            'iteration': self.iterations,
                             'losses': self.losses,
                         }
                 torch.save(state, self.name_to_save+'.pth.tar')
                 best_val_loss = loss
+            
+            self.iterations += 1
 
         print('| Total time elapsed: {:20}'.format(format_time(time.time() - elapsed_start_time)))
 
     def load_checkpoint(self):
         checkpoint = torch.load(self.name_to_save+'.pth.tar')
-        self.iteration=checkpoint['iteration']
+        self.iterations=checkpoint['iteration']
         self.losses=checkpoint['losses']
         self.model.load_state_dict(checkpoint['net'])
 
@@ -131,16 +115,14 @@ class NetworkAPI():
             plt.title('Loss rate')
             plt.xlabel('Iterations (batches proceesed)')
             plt.ylabel('Loss rate')
-            plt.show()
+            plt.show() 
         else:
-            plt.plot(self.losses)
             plt.title('Loss rate averaged')
             plt.xlabel('Iterations (batches proceesed)')
             plt.ylabel('Loss rate')
-            plt.show()
             denominator = self.iterations / 1000
-            losses_avg = [np.mean(self.losses[100*i:100*(i+1)]) for i in range(self.iterations//denominator)]
-            plt.plot([i for i in range(self.iterations//denominator)], losses_avg)
+            losses_avg = [np.mean(self.losses[100*i:100*(i+1)]) for i in range(int(self.iterations//denominator))]
+            plt.plot([i for i in range(int(self.iterations//denominator))   ], losses_avg)
             plt.show()
        
     def generate_sequence(self, song_len, temperature = 1.0):
