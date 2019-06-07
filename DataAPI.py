@@ -100,6 +100,8 @@ class MIDI_Dataset:
         self.unique_notes = set()
         self.dict_list = []
         self.all_songs_cnt = 0
+        self.estimated_tempos = []
+        self.bag_of_notes = np.zeros(128,)
         
         # Find all .midi and .mid files and add their names to list 
         files = []
@@ -112,7 +114,14 @@ class MIDI_Dataset:
         for file in tqdm(files, desc = 'MIDI files importing'):
             try:
                 midi_file = pretty_midi.PrettyMIDI(file)
+
+                # Add values to describe type of dataset
+                # - estimated tempo of all songs in list
+                # - bag_of_notes to see probability of playing that note
+                self.estimated_tempos.append(midi_file.estimate_tempo())
                 piano_roll = midi_file.get_piano_roll(fs=self.fps)
+                self.bag_of_notes += np.where(piano_roll!=0, 1, piano_roll).sum(axis=1)
+
                 dict_time, unique_notes = pianoroll_to_dict(piano_roll)
 
                 # Append new notes to self fields
@@ -121,6 +130,9 @@ class MIDI_Dataset:
                 self.all_songs_cnt += 1
             except:
                 print('File: ' + file + ' is not a vaild MIDI file')
+        
+        # Get probabilities of playing notes by normalizing them
+        self.bag_of_notes = self.bag_of_notes/sum(self.bag_of_notes)
         
         # Label Encoding for unique_notes. '-1':0 (empty note)
         self.notes_mapping = {note:(i) for i, note in enumerate(np.sort(list(self.unique_notes)))}
@@ -237,3 +249,9 @@ class DataAPI:
     
     def sequence_to_midi(self, sequence, program):
         return self.MIDI_dataset.sequence_to_midi(sequence, program)
+
+    def get_estimated_tempos(self):
+        return np.mean(self.MIDI_dataset.estimated_tempos)
+
+    def get_bag_of_notes(self):
+        return self.MIDI_dataset.bag_of_notes

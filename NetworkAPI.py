@@ -9,6 +9,9 @@ import torch.nn.functional as F
 
 from tqdm import tqdm_notebook as tqdm
 
+def calculate_bag_of_words(piano_roll):
+    notes_quant = np.where(piano_roll!=0, 1, piano_roll).sum(axis=1)
+    return notes_quant/sum(notes_quant)
 
 def format_time(seconds):
     days = int(seconds / 3600/24)
@@ -55,11 +58,14 @@ class NetworkAPI():
         self.model.to(self.device)
 
         self.losses = []
+        self.iterations_generated = []
+        self.estimated_tempos = []
+        self.bag_of_words_diffs = []
 
         self.criterion = nn.NLLLoss()
         self.optimizer = optimizer
 
-    def train_loop(self, iterations, verbose_every_iteration = 10000):
+    def train_loop(self, iterations, verbose_every_iteration = 10000, generate_every_iteration = 100):
         print("====== HYPERPARAMETERS ======")
         print("starting epoch=", self.iterations)
         print("epochs to go=", iterations)
@@ -72,6 +78,21 @@ class NetworkAPI():
         for iteration in range(iterations):
             if iteration % verbose_every_iteration == 0:
                 print(48*'-')
+
+            # Generating new sample every cycle to check simmilarities to dataset
+            if iteration % generate_every_iteration == 0:
+                self.iterations_generated.append(iteration)
+                # Generate sample
+                sample_midi = self.generate_sample_midi(song_len = 1000)
+                sample_piano_roll = sample_midi.get_piano_roll()
+                # Calculate difference in bag of words (Euclidian distance)
+                sample_bag_of_words = calculate_bag_of_words(sample_piano_roll)
+                dataset_bag_of_words = self.DataAPI.get_bag_of_notes()
+                bag_of_words_diff = sum((sample_bag_of_words - dataset_bag_of_words)**2)
+                self.bag_of_words_diffs.append(bag_of_words_diff)
+
+                # Calculate difference in tempo (ABS value)
+                self.estimated_tempos.append(sample_midi.estimate_tempo())
 
             features, targets = self.DataAPI.get_batch()
             features, targets = torch.tensor(data=features, dtype=torch.long).to(self.device), torch.tensor(data=targets, dtype=torch.long).to(self.device)
@@ -124,6 +145,26 @@ class NetworkAPI():
             losses_avg = [np.mean(self.losses[100*i:100*(i+1)]) for i in range(int(self.iterations//denominator))]
             plt.plot([i for i in range(int(self.iterations//denominator))   ], losses_avg)
             plt.show()
+
+    def plot_estimated_tempo_diff(self):
+        plt.figure(figsize=(10,4))
+
+        plt.axhline(self.DataAPI.get_estimated_tempos(), linestyle = '--', color = 'red', linewidth = 3, label = 'Dataset mean tempo')
+        plt.plot(self.iterations_generated, self.estimated_tempos, label = 'Estimated tempo of sample')
+        plt.legend(loc='center left')
+        plt.title('Estimated tempo of generated sample convergence')
+        plt.xlabel('Iterations (batches proceesed)')
+        plt.ylabel('Estimated tempo')
+        plt.show()
+
+    def plot_bag_of_words_diff(self):
+        plt.figure(figsize=(10,4))
+
+        plt.plot(self.iterations_generated, self.bag_of_words_diffs)
+        plt.title('Bag of notes difference between generated sample and dataset')
+        plt.xlabel('Iterations (batches proceesed)')
+        plt.ylabel('Difference (Euclidian distance)')
+        plt.show()
        
     def generate_sequence(self, song_len, temperature = 1.0):
         sequence = self.DataAPI.random_start().tolist()
