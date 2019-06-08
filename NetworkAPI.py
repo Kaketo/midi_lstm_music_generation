@@ -78,7 +78,7 @@ class NetworkAPI():
         self.criterion = nn.NLLLoss()
         self.optimizer = optimizer
 
-    def train_loop(self, iterations, verbose_every_iteration = 10000, generate_every_iteration = 100):
+    def train_loop(self, iterations, verbose_every_iteration = 10000, generate_every_iteration = 100, song_len=1000):
         print("====== HYPERPARAMETERS ======")
         print("starting epoch=", self.iterations)
         print("epochs to go=", iterations)
@@ -96,7 +96,7 @@ class NetworkAPI():
             if iteration % generate_every_iteration == 0:
                 self.iterations_generated.append(iteration)
                 # Generate sample
-                sample_midi = self.generate_sample_midi(song_len = 1000)
+                sample_midi = self.generate_sample_midi(song_len = song_len)
                 sample_piano_roll = sample_midi.get_piano_roll()
                 # Calculate difference in bag of words (Euclidian distance)
                 sample_bag_of_words = calculate_bag_of_words(sample_piano_roll)

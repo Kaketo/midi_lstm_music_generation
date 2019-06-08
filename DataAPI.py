@@ -88,8 +88,9 @@ def piano_roll_to_melody(piano_roll):
     Could be done without pandas, but it is more elegant that way.
     """
     a,b = np.nonzero(piano_roll)
-    melody = pd.DataFrame({"a":a, "b":b}).groupby("b").min()['a']
-    melody = pd.DataFrame(melody, index=range(piano_roll.shape[1]))
+    melody = pd.DataFrame({"a":a, "b":b})
+    melody['a'] = pd.cut(melody['a'], 8, labels=False)
+    melody = melody.groupby('b').min()['a']
     melody = melody.fillna(0)
     return melody.values.reshape(-1,)
 
