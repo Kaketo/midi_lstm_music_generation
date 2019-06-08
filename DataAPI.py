@@ -3,6 +3,7 @@ import glob2
 import numpy as np
 from collections import deque
 from tqdm import tqdm_notebook as tqdm
+import pandas as pd
 
 #################################################################
 ##### FUNKCJE POMOCNICZE ########################################
@@ -20,17 +21,17 @@ def pianoroll_to_dict(pianoroll):
     """
     Transform pianoroll to time dictionary:
     {0: 24,56, 1: 55,43, ...}
-    
+
     Inputs:
     -------
     piano roll matrix
-    
+
     Outputs:
     --------
     dict_keys_time - time dictionary from song
     unique_notes - unique notes from song as set
     """
-    
+
     times = pianoroll.shape[1]
     unique_notes = set()
     dict_keys_time = {}
@@ -44,7 +45,7 @@ def pianoroll_to_dict(pianoroll):
         else:
             dict_keys_time[time] = ','.join(notes_index.astype(str))
             unique_notes.add(','.join(notes_index.astype(str)))
-        
+
     return dict_keys_time, unique_notes
 
 def piano_roll_to_pretty_midi(piano_roll, fs=100, program=0):
@@ -81,13 +82,24 @@ def piano_roll_to_pretty_midi(piano_roll, fs=100, program=0):
     pm.instruments.append(instrument)
     return pm
 
+def piano_roll_to_melody(piano_roll):
+    """
+    Convert piano roll to melody according to dap_xia.pdf
+    Could be done without pandas, but it is more elegant that way.
+    """
+    a,b = np.nonzero(piano_roll)
+    melody = pd.DataFrame({"a":a, "b":b}).groupby("b").min()['a']
+    melody = pd.DataFrame(melody, index=range(piano_roll.shape[1]))
+    melody = melody.fillna(0)
+    return melody.values.reshape(-1,)
+
 #################################################################
 ##### KLASY #####################################################
 #################################################################
 
-class MIDI_Dataset:    
+class MIDI_Dataset:
     """
-    Class to find all midi files in folder and transform them to form that is acceptable by LSTM. 
+    Class to find all midi files in folder and transform them to form that is acceptable by LSTM.
     This class is later used by Data_API class.
 
     Arguments:
@@ -102,14 +114,15 @@ class MIDI_Dataset:
         self.all_songs_cnt = 0
         self.estimated_tempos = []
         self.bag_of_notes = np.zeros(128,)
-        
-        # Find all .midi and .mid files and add their names to list 
+        self.melodies = []
+
+        # Find all .midi and .mid files and add their names to list
         files = []
         for file in glob2.glob(path+'**/*.mid'):
             files.append(file)
         for file in glob2.glob(path+'**/*.midi'):
             files.append(file)
-            
+
         # Read MIDI file and transform it into time dictionary
         for file in tqdm(files, desc = 'MIDI files importing'):
             try:
@@ -121,7 +134,7 @@ class MIDI_Dataset:
                 self.estimated_tempos.append(midi_file.estimate_tempo())
                 piano_roll = midi_file.get_piano_roll(fs=self.fps)
                 self.bag_of_notes += np.where(piano_roll!=0, 1, piano_roll).sum(axis=1)
-
+                self.melodies.append(piano_roll_to_melody(piano_roll))
                 dict_time, unique_notes = pianoroll_to_dict(piano_roll)
 
                 # Append new notes to self fields
@@ -130,10 +143,10 @@ class MIDI_Dataset:
                 self.all_songs_cnt += 1
             except:
                 print('File: ' + file + ' is not a vaild MIDI file')
-        
+
         # Get probabilities of playing notes by normalizing them
         self.bag_of_notes = self.bag_of_notes/sum(self.bag_of_notes)
-        
+
         # Label Encoding for unique_notes. '-1':0 (empty note)
         self.notes_mapping = {note:(i) for i, note in enumerate(np.sort(list(self.unique_notes)))}
         self.inverse_mapping={v:k for k,v in self.notes_mapping.items()}
@@ -142,13 +155,13 @@ class MIDI_Dataset:
         for i in tqdm(range(self.all_songs_cnt), desc = 'Notes label encoding'):
             for time, notes in self.dict_list[i].items():
                 self.dict_list[i][time] = self.notes_mapping[notes]
-        
+
     def unique_notes_len(self):
         return len(self.unique_notes)
-    
+
     def number_of_songs(self):
         return self.all_songs_cnt
-    
+
     def __dict_to_sequence(self, song_nr, sequence_length):
         """
         Arguments:
@@ -159,11 +172,11 @@ class MIDI_Dataset:
         --------
         """
         time_dict = self.dict_list[song_nr]
-        
+
         times = list(time_dict.keys())
         start_time, end_time = np.min(times), np.max(times)
         n_samples = end_time - start_time
-        
+
         initial_values = [0]*(sequence_length-1) + [time_dict[start_time]]
         train_values = np.zeros(shape=(n_samples+1, sequence_length))
         target_values = np.zeros(shape=(n_samples+1))
@@ -176,11 +189,11 @@ class MIDI_Dataset:
             train_values_per_step.append(current_target)
         train_values[n_samples, :] = list(train_values_per_step)
         return train_values, target_values
-    
+
     def sequence_to_pianoroll(self, sequence):
         pianoroll_matrix = np.zeros(shape = (128,len(sequence)))
         sequence_splited = [self.inverse_mapping.get(notes).split(',') for notes in sequence]
-        
+
         for i,notes in enumerate(sequence_splited):
             notes_len = len(notes)
             if notes_len == 1 and notes[0] == '-1':
@@ -188,7 +201,7 @@ class MIDI_Dataset:
             else:
                 for note in notes:
                     pianoroll_matrix[int(note),i] = 1
-        
+
         return pianoroll_matrix
 
     def get_batch(self, batch_size, seq_len):
@@ -199,7 +212,7 @@ class MIDI_Dataset:
             batch_train.append(train_vals)
             batch_target.append(target_vals)
         return np.vstack(batch_train), np.hstack(batch_target)
-    
+
     def sequence_to_midi(self, sequence, program):
         pianoroll = self.sequence_to_pianoroll(sequence)
         generate_to_midi = piano_roll_to_pretty_midi(pianoroll, program = program, fs=self.fps)
@@ -210,43 +223,43 @@ class MIDI_Dataset:
 class DataAPI:
     def __init__(self, MIDI_dataset, songs_in_batch, batch_size, sequence_length):
         self.MIDI_dataset = MIDI_dataset
-        
+
         self.unique_notes_len = self.MIDI_dataset.unique_notes_len()
         self.number_of_songs = self.MIDI_dataset.number_of_songs()
 
         self.songs_in_batch = songs_in_batch
         self.batch_size = batch_size
         self.sequence_length = sequence_length
-                
+
         self._song_loaded = None
         self._batch_pos = 0
-    
+
     def get_batch(self):
         if self._song_loaded is None:
-            songs_load_sequences, songs_load_target = self.MIDI_dataset.get_batch(self.songs_in_batch, self.sequence_length) 
+            songs_load_sequences, songs_load_target = self.MIDI_dataset.get_batch(self.songs_in_batch, self.sequence_length)
             rand_order = np.random.permutation(np.arange(songs_load_target.shape[0]))
             songs_load_sequences = songs_load_sequences[rand_order, :]
             songs_load_target = songs_load_target[rand_order]
-            
+
             self._song_loaded = (songs_load_sequences,songs_load_target)
             self._batch_pos = 0
-        
+
         # Calculate end of batch position (if reaches end of songs_load, return last idx)
         songs_load_sequences, songs_load_target = self._song_loaded
         end_pos = min(self._batch_pos + self.batch_size, songs_load_target.shape[0])
-        batch_sequences = songs_load_sequences[self._batch_pos:end_pos, :] 
+        batch_sequences = songs_load_sequences[self._batch_pos:end_pos, :]
         batch_target =  songs_load_target[self._batch_pos:end_pos]
-        
+
         if end_pos == songs_load_target.shape[0]:
             self._song_loaded = None
         self._batch_pos = end_pos
         return batch_sequences, batch_target
-    
+
     def random_start(self):
         first_seq = np.zeros(self.sequence_length)
         first_seq[-1] = np.random.randint(self.unique_notes_len)
         return first_seq
-    
+
     def sequence_to_midi(self, sequence, program):
         return self.MIDI_dataset.sequence_to_midi(sequence, program)
 
@@ -255,3 +268,6 @@ class DataAPI:
 
     def get_bag_of_notes(self):
         return self.MIDI_dataset.bag_of_notes
+
+    def get_melodies(self):
+        return self.MIDI_dataset.melodies

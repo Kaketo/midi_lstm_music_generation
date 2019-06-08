@@ -9,6 +9,10 @@ import torch.nn.functional as F
 
 from tqdm import tqdm_notebook as tqdm
 
+#to calculate distance between melodies
+from scipy.spatial.distance import pdist, squareform
+from DataAPI import piano_roll_to_melody
+
 def calculate_bag_of_words(piano_roll):
     notes_quant = np.where(piano_roll!=0, 1, piano_roll).sum(axis=1)
     return notes_quant/sum(notes_quant)
@@ -46,6 +50,13 @@ def format_time(seconds):
     return f
 
 
+def levenshtein_distance(mel, melodies):
+    longest_melody_shape = max(max([mel.shape[0] for mel in melodies]), mel.shape[0])
+    new_list = melodies.copy()
+    new_list.append(mel)
+    new_melodies = [np.hstack([mel, np.zeros((longest_melody_shape - mel.shape[0]))]) for mel in new_list]
+    return squareform(pdist(np.stack(new_melodies),'jaccard'))
+
 class NetworkAPI():
     def __init__(self, model, DataAPI, name_to_save, optimizer):
         self.model=model,
@@ -61,6 +72,8 @@ class NetworkAPI():
         self.iterations_generated = []
         self.estimated_tempos = []
         self.bag_of_words_diffs = []
+        self.mean_levenshtain_distance = []
+        self.min_levenshtain_distance = []
 
         self.criterion = nn.NLLLoss()
         self.optimizer = optimizer
@@ -74,7 +87,7 @@ class NetworkAPI():
         elapsed_start_time = time.time()
         best_loss = np.inf
         train_start_time = time.time()
-        
+
         for iteration in range(iterations):
             if iteration % verbose_every_iteration == 0:
                 print(48*'-')
@@ -87,9 +100,16 @@ class NetworkAPI():
                 sample_piano_roll = sample_midi.get_piano_roll()
                 # Calculate difference in bag of words (Euclidian distance)
                 sample_bag_of_words = calculate_bag_of_words(sample_piano_roll)
+                sample_melody = piano_roll_to_melody(sample_piano_roll)
+                dataset_melodies = self.DataAPI.get_melodies()
                 dataset_bag_of_words = self.DataAPI.get_bag_of_notes()
                 bag_of_words_diff = sum((sample_bag_of_words - dataset_bag_of_words)**2)
+                melody_diff = levenshtein_distance(sample_melody, dataset_melodies)
+                mean_melody_diff = melody_diff[-1][:-1].mean()
+                min_melody_diff = melody_diff[-1][:-1].min()
                 self.bag_of_words_diffs.append(bag_of_words_diff)
+                self.mean_levenshtain_distance.append(mean_melody_diff)
+                self.min_levenshtain_distance.append(min_melody_diff)
 
                 # Calculate difference in tempo (ABS value)
                 self.estimated_tempos.append(sample_midi.estimate_tempo())
@@ -97,7 +117,7 @@ class NetworkAPI():
             features, targets = self.DataAPI.get_batch()
             features, targets = torch.tensor(data=features, dtype=torch.long).to(self.device), torch.tensor(data=targets, dtype=torch.long).to(self.device)
             self.model.zero_grad()
-            
+
             target_preds = F.log_softmax(self.model(features), dim=1) # dim=1 is row
             loss = self.criterion(target_preds, targets)
             loss.backward()
@@ -117,7 +137,7 @@ class NetworkAPI():
                         }
                 torch.save(state, self.name_to_save+'.pth.tar')
                 best_val_loss = loss
-            
+
             self.iterations += 1
 
         print('| Total time elapsed: {:20}'.format(format_time(time.time() - elapsed_start_time)))
@@ -136,7 +156,7 @@ class NetworkAPI():
             plt.title('Loss rate')
             plt.xlabel('Iterations (batches proceesed)')
             plt.ylabel('Loss rate')
-            plt.show() 
+            plt.show()
         else:
             plt.title('Loss rate averaged')
             plt.xlabel('Iterations (batches proceesed)')
@@ -165,7 +185,25 @@ class NetworkAPI():
         plt.xlabel('Iterations (batches proceesed)')
         plt.ylabel('Difference (Euclidian distance)')
         plt.show()
-       
+
+    def plot_mean_levenshtain_distance(self):
+        plt.figure(figsize=(10,4))
+
+        plt.plot(self.iterations_generated, self.mean_levenshtain_distance)
+        plt.title('Mean Levenshtein distance between melody of generated sample and melody of dataset')
+        plt.xlabel('Iterations (batches proceesed)')
+        plt.ylabel('Levenshtein distance')
+        plt.show()
+
+    def plot_min_levenshtain_distance(self):
+        plt.figure(figsize=(10,4))
+
+        plt.plot(self.iterations_generated, self.min_levenshtain_distance)
+        plt.title('Min Levenshtein distance between melody of generated sample and melody of dataset')
+        plt.xlabel('Iterations (batches proceesed)')
+        plt.ylabel('Levenshtein distance')
+        plt.show()
+
     def generate_sequence(self, song_len, temperature = 1.0):
         sequence = self.DataAPI.random_start().tolist()
         gen_song = [int(sequence[-1])]
