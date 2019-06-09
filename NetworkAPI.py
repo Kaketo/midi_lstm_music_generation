@@ -94,25 +94,28 @@ class NetworkAPI():
 
             # Generating new sample every cycle to check simmilarities to dataset
             if iteration % generate_every_iteration == 0:
-                self.iterations_generated.append(iteration)
+                self.iterations_generated.append(self.iterations+iteration)
                 # Generate sample
                 sample_midi = self.generate_sample_midi(song_len = song_len)
                 sample_piano_roll = sample_midi.get_piano_roll()
+                
                 # Calculate difference in bag of words (Euclidian distance)
                 sample_bag_of_words = calculate_bag_of_words(sample_piano_roll)
                 sample_melody = piano_roll_to_melody(sample_piano_roll)
-                dataset_melodies = self.DataAPI.get_melodies()
                 dataset_bag_of_words = self.DataAPI.get_bag_of_notes()
                 bag_of_words_diff = sum((sample_bag_of_words - dataset_bag_of_words)**2)
+                self.bag_of_words_diffs.append(bag_of_words_diff)
+
+                # Calculate differences in melody
+                dataset_melodies = self.DataAPI.get_melodies()
                 melody_diff = levenshtein_distance(sample_melody, dataset_melodies)
                 mean_melody_diff = melody_diff[-1][:-1].mean()
                 min_melody_diff = melody_diff[-1][:-1].min()
-                self.bag_of_words_diffs.append(bag_of_words_diff)
                 self.mean_levenshtain_distance.append(mean_melody_diff)
                 self.min_levenshtain_distance.append(min_melody_diff)
 
                 # Calculate difference in tempo (ABS value)
-                self.estimated_tempos.append(sample_midi.estimate_tempo())
+                # self.estimated_tempos.append(sample_midi.estimate_tempo())
 
             features, targets = self.DataAPI.get_batch()
             features, targets = torch.tensor(data=features, dtype=torch.long).to(self.device), torch.tensor(data=targets, dtype=torch.long).to(self.device)
@@ -134,6 +137,11 @@ class NetworkAPI():
                             'net': self.model.state_dict(),
                             'iteration': self.iterations,
                             'losses': self.losses,
+                            'iterations_generated': self.iterations_generated,
+                            'estimated_tempos': self.estimated_tempos,
+                            'bag_of_words_diffs' : self.bag_of_words_diffs,
+                            'mean_levenshtain_distance': self.mean_levenshtain_distance,
+                            'min_levenshtain_distance': self.min_levenshtain_distance
                         }
                 torch.save(state, self.name_to_save+'.pth.tar')
                 best_val_loss = loss
@@ -147,6 +155,11 @@ class NetworkAPI():
         self.iterations=checkpoint['iteration']
         self.losses=checkpoint['losses']
         self.model.load_state_dict(checkpoint['net'])
+        self.iterations_generated=checkpoint['iterations_generated']
+        self.estimated_tempos=checkpoint['estimated_tempos']
+        self.bag_of_words_diffs=checkpoint['bag_of_words_diffs']
+        self.mean_levenshtain_distance=checkpoint['mean_levenshtain_distance']
+        self.min_levenshtain_distance=checkpoint['min_levenshtain_distance']
 
     def plot_errors(self):
         plt.figure(figsize=(10, 4))
