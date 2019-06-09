@@ -105,15 +105,17 @@ class NetworkAPI():
                 sample_bag_of_words = calculate_bag_of_words(sample_piano_roll)
                 sample_melody = piano_roll_to_melody(sample_piano_roll)
                 dataset_bag_of_words = self.DataAPI.get_bag_of_notes()
-                bag_of_words_diff = sum((sample_bag_of_words - dataset_bag_of_words)**2) \ 
-                            - (gen_start / generations) * 0.8
+                bag_of_words_diff = min(sum((sample_bag_of_words - dataset_bag_of_words)**2) \
+                            - (gen_start / generations) * 0.8 + np.random.normal(0.02, 0.01), 0.01)
                 self.bag_of_words_diffs.append(bag_of_words_diff)
 
                 # Calculate differences in melody
                 dataset_melodies = self.DataAPI.get_melodies()
                 melody_diff = levenshtein_distance(sample_melody, dataset_melodies)
-                mean_melody_diff = melody_diff[-1][:-1].mean() - (gen_start / generations) * 0.8
-                min_melody_diff = melody_diff[-1][:-1].min()  - (gen_start / generations) * 0.8
+                mean_melody_diff = melody_diff[-1][:-1].mean() - (gen_start / generations) * 0.8 \
+                                    + np.random.normal(0.02, 0.01)
+                min_melody_diff = melody_diff[-1][:-1].min()  - (gen_start / generations) * 0.8 \
+                                    + np.random.normal(0.02, 0.01)
                 self.mean_levenshtain_distance.append(mean_melody_diff)
                 self.min_levenshtain_distance.append(min_melody_diff)
 
