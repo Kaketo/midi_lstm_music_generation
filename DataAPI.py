@@ -4,6 +4,7 @@ import numpy as np
 from collections import deque
 from tqdm import tqdm_notebook as tqdm
 import pandas as pd
+from scipy.signal import spectrogram
 
 #################################################################
 ##### FUNKCJE POMOCNICZE ########################################
@@ -116,6 +117,8 @@ class MIDI_Dataset:
         self.estimated_tempos = []
         self.bag_of_notes = np.zeros(128,)
         self.melodies = []
+        self.beat_times = []
+        self.spectrograms = []
 
         # Find all .midi and .mid files and add their names to list
         files = []
@@ -137,6 +140,10 @@ class MIDI_Dataset:
                 self.bag_of_notes += np.where(piano_roll!=0, 1, piano_roll).sum(axis=1)
                 self.melodies.append(piano_roll_to_melody(piano_roll))
                 dict_time, unique_notes = pianoroll_to_dict(piano_roll)
+
+                _, t, sp = spectrogram(midi_file.synthesize())
+                self.beat_times.append(t)
+                self.spectrograms.append(sp)
 
                 # Append new notes to self fields
                 self.unique_notes = self.unique_notes.union(unique_notes)
@@ -272,3 +279,9 @@ class DataAPI:
 
     def get_melodies(self):
         return self.MIDI_dataset.melodies
+
+    def get_beat_times(self):
+        return self.MIDI_dataset.beat_times
+
+    def get_spectrograms(self):
+        return self.MIDI_dataset.spectrograms
