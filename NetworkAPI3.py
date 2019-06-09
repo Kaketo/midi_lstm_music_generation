@@ -109,7 +109,7 @@ class NetworkAPI():
             # Generating new sample every cycle to check simmilarities to dataset
             if iteration % generate_every_iteration == 0:
                 gen_start += 1
-                self.iterations_generated.append(self.iterations+iteration)
+                self.iterations_generated.append(self.iterations)
                 # Generate sample
                 sample_midi = self.generate_sample_midi(song_len = song_len)
                 sample_piano_roll = sample_midi.get_piano_roll()
@@ -238,6 +238,15 @@ class NetworkAPI():
         plt.title('Min Levenshtein distance between melody of generated sample and melody of dataset')
         plt.xlabel('Iterations (batches proceesed)')
         plt.ylabel('Levenshtein distance')
+        plt.show()
+
+    def plot_mean_spectrogram_diff(self):
+        plt.figure(figsize=(10,4))
+
+        plt.plot(self.iterations_generated, self.mean_spectrogram_diff)
+        plt.title('Mean difference between spectrogram of generated sample and spectrograms of dataset')
+        plt.xlabel('Iterations (batches proceesed)')
+        plt.ylabel('Mean spectrogram difference')
         plt.show()
 
     def generate_sequence(self, song_len, temperature = 1.0):
