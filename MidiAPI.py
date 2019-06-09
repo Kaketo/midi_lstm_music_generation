@@ -2,6 +2,7 @@ import copy
 import numpy as np
 import pretty_midi
 import matplotlib.pyplot as plt
+from scipy.signal import spectrogram
 
 class MidiAPI:
     """
@@ -86,3 +87,26 @@ class MidiAPI:
 
     def extract_midi(self):
         return self.midi
+
+    def __spectrogram(self, fs):
+        return spectrogram(self.extract_midi().synthesize(fs=fs))
+
+    def compare_spectrograms(self, other, tolerance=0.05, fs=44100):
+        """
+        :param other: element do porównania się z nim
+        :param tolerance: maksymalny średni błąd bezwzględny
+        :param fs: sampling rate
+        :return: zgodność [0, 1]
+        """
+
+        _, time_self, sp_self = self.__spectrogram(fs)
+        _, time_other, sp_other = other.__spectrogram(fs)
+
+        ts_min = min([time_self.size, time_other.size])
+        assert (time_self[:ts_min] == time_other[:ts_min]).all()
+
+        diff = sp_self[:, :ts_min] - sp_other[:, :ts_min]    # Różnica pomiędzy spektrogramami
+        mean_diff_per_bit = diff.mean(axis=0)                # Średnia różnica w każdym bicie
+        errors = (abs(mean_diff_per_bit) > tolerance).sum()  # Liczba średnich, która przekracza wartość progową
+
+        return 1 - errors / ts_min  # Zgodność utworów [0, 1]
