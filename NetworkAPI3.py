@@ -109,7 +109,7 @@ class NetworkAPI():
             # Generating new sample every cycle to check simmilarities to dataset
             if iteration % generate_every_iteration == 0:
                 gen_start += 1
-                self.iterations_generated.append(self.iterations)
+                self.iterations_generated.append(self.iterations+iteration)
                 # Generate sample
                 sample_midi = self.generate_sample_midi(song_len = song_len)
                 sample_piano_roll = sample_midi.get_piano_roll()
@@ -168,7 +168,7 @@ class NetworkAPI():
                 torch.save(state, self.name_to_save+'.pth.tar')
                 best_val_loss = loss
 
-            self.iterations += 1
+        self.iterations += iterations
 
         print('| Total time elapsed: {:20}'.format(format_time(time.time() - elapsed_start_time)))
 
